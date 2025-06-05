@@ -30,17 +30,17 @@ def analyze_pcap(file_path):
         ip = pkt[IP]
         src = ip.src
         dst = ip.dst
-        ts = pkt.time
+        ts = float(pkt.time)  # convert EDecimal to float
         time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
 
         # SYN
         if tcp.flags == 0x02 and not seen_syn:  # SYN only
-            syn_time = ts
+            syn_time = float(ts)
             seen_syn = True
 
         # SYN-ACK
         elif tcp.flags == 0x12 and syn_time and not syn_ack_time:  # SYN + ACK
-            syn_ack_time = ts
+            syn_ack_time = float(ts)
 
         # TCP Reset
         if tcp.flags & 0x04:  # RST
