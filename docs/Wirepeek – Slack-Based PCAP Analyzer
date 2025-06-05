@@ -66,3 +66,4 @@ Resets ≥ 1: "Abnormal session termination"
 When submitting to your internal approver or manager:
 
 This app analyzes PCAPs for network-layer TCP behavior and posts summaries (e.g. retransmissions, duplicate ACKs, TCP resets) in Slack. It does not parse or post any payload/application-layer content. The only metadata included are source/destination IPs and timestamps, which are routinely used in internal support workflows. The app does not persist any capture data or send it outside of Slack.
+I only used Docker locally once to build the image for deployment. The app runs entirely on Heroku’s secure, ephemeral container infrastructure — no Docker containers or services stay active on my machine.
