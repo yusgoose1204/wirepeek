@@ -1,0 +1,68 @@
+Wirepeek – Slack-Based PCAP Analyzer
+
+Why Wirepeek?
+Not everyone is comfortable using Wireshark or reading packet-level details.
+
+Wirepeek helps support engineers quickly spot network issues using .pcap files — no manual digging required.
+
+
+What It Does
+Users upload .pcap files directly into Slack channels/DMs
+Parses the file using pyshark to extract useful network insights
+RTT, retransmissions, resets, top IP conversations, packet loss patterns
+
+Security & Privacy
+No File Retention	.pcap files are not stored — they are processed in memory
+Local Analysis	All processing is done within your controlled environment
+
+What It's Not
+Not a full Wireshark replacement
+Not for inspecting sensitive payload data
+Not a file storage solution
+
+Sample Output
+*** WirePeek Summary ***
+
+Conversation: 192.168.1.10 ➜ 192.168.1.20
+Total Packets: 58
+Avg RTT: 12.4 ms
+SYN ➜ SYN-ACK Delay: 105.3 ms
+
+TCP Events:
+- Retransmissions: 6 (10.3%)
+- Duplicate ACKs: 4
+- Zero Window Events: 2
+- TCP Resets: 1
+- Keep-Alives: 3
+
+Possible Issues:
+- ⚠️ High SYN delay may indicate server/network latency
+- ⚠️ Retransmissions suggest packet loss or congestion
+- ⚠️ Zero Window seen — client might be overwhelmed
+
+Notes:
+- This analysis assumes bi-directional traffic. Partial captures may affect accuracy.
+- Use this as a starting point. Refer to full packet trace for deeper inspection.
+
+
+Metric	Detection Method
+Total Packets	Count TCP packets (filter by protocol)
+Avg RTT	Track SEQ ➜ ACK pairs, measure delta
+SYN Delay	Time diff between SYN and SYN-ACK
+Retransmissions	Duplicate SEQ numbers from same source
+Duplicate ACKs	ACKs with the same number repeated
+Zero Window	TCP headers with Window Size = 0
+Keep-Alive	Small-size packets with only ACK or TCP Keep-Alive flag
+TCP Resets	Packets with RST flag
+
+Interpretation Logics
+SYN delay > 100ms: "High handshake delay"
+Retransmissions > 5%: "Packet loss or unstable connection"
+Duplicate ACKs > 3: "Possible congestion or retransmission"
+Zero Window ≥ 1: "Receiving end is overloaded or memory constrained"
+Resets ≥ 1: "Abnormal session termination"
+
+
+When submitting to your internal approver or manager:
+
+This app analyzes PCAPs for network-layer TCP behavior and posts summaries (e.g. retransmissions, duplicate ACKs, TCP resets) in Slack. It does not parse or post any payload/application-layer content. The only metadata included are source/destination IPs and timestamps, which are routinely used in internal support workflows. The app does not persist any capture data or send it outside of Slack.
