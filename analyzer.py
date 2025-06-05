@@ -17,8 +17,8 @@ def analyze_pcap(file_path):
     syn_time = None
     syn_ack_time = None
 
-    seen_seq_payload = set()
-    dup_ack_count = {}
+    seen_data = set()
+    ack_tracker = {}
     dup_ack_seen = set()
 
     for pkt in packets:
@@ -36,9 +36,7 @@ def analyze_pcap(file_path):
         flags = tcp.flags
         payload_len = len(tcp.payload)
 
-        flow_id = (src, dst, sport, dport)
-
-        # SYN and SYN-ACK timing
+        # SYN and SYN-ACK
         if flags == 0x02 and not syn_time:
             syn_time = ts
         elif flags == 0x12 and syn_time and not syn_ack_time:
@@ -48,25 +46,26 @@ def analyze_pcap(file_path):
         if flags & 0x04:
             tcp_reset_events.append((src, dst, time_str))
 
-        # Duplicate ACK logic (no payload, same ack)
-        if payload_len == 0 and ack > 0:
-            ack_key = (src, dst, ack)
-            dup_ack_count[ack_key] = dup_ack_count.get(ack_key, 0) + 1
-            if dup_ack_count[ack_key] >= 2 and ack_key not in dup_ack_seen:
+        # Duplicate ACK (same ack value, no payload)
+        if payload_len == 0:
+            key = (src, dst, ack)
+            ack_tracker[key] = ack_tracker.get(key, 0) + 1
+            if ack_tracker[key] >= 2 and key not in dup_ack_seen:
                 duplicate_acks.append((src, dst, time_str))
-                dup_ack_seen.add(ack_key)
+                dup_ack_seen.add(key)
 
-        # Retransmissions (same seq with payload)
+        # Retransmission or Fast Retransmission
         if payload_len > 0:
-            seq_key = (src, dst, sport, dport, seq)
-            if seq_key in seen_seq_payload:
-                regular_retrans.append((src, dst, time_str))
-                # Fast retransmission if 3+ dup ACKs received for this seq
-                rev_ack_key = (dst, src, seq)
-                if dup_ack_count.get(rev_ack_key, 0) >= 3:
+            data_key = (src, dst, sport, dport, seq)
+            if data_key in seen_data:
+                # Fast retrans if 3+ dup ACKs preceded this
+                reverse_ack_key = (dst, src, seq + payload_len)
+                if ack_tracker.get(reverse_ack_key, 0) >= 3:
                     fast_retrans.append((src, dst, time_str))
+                else:
+                    regular_retrans.append((src, dst, time_str))
             else:
-                seen_seq_payload.add(seq_key)
+                seen_data.add(data_key)
 
     syn_delay_ms = round((syn_ack_time - syn_time) * 1000, 3) if syn_time and syn_ack_time else None
 
