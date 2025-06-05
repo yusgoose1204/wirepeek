@@ -10,16 +10,16 @@ def analyze_pcap(file_path):
 
     total_tcp_packets = 0
     regular_retrans = []
-    fast_retrans = []  # Placeholder — needs deeper analysis
+    fast_retrans = []
     duplicate_acks = []
-    zero_window_events = []  # Scapy can't see TCP window=0 without TCP options (rare)
+    zero_window_events = []
     tcp_reset_events = []
     syn_time = None
     syn_ack_time = None
 
-    seen_seqs = set()
-    ack_counts = {}
-    seen_syn = False
+    seen_seqs = {}
+    ack_history = {}
+    retrans_flags = {}
 
     for pkt in packets:
         if not pkt.haslayer(TCP) or not pkt.haslayer(IP):
@@ -30,35 +30,43 @@ def analyze_pcap(file_path):
         ip = pkt[IP]
         src = ip.src
         dst = ip.dst
-        ts = float(pkt.time)  # convert EDecimal to float
+        ts = float(pkt.time)
         time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
 
-        # SYN
-        if tcp.flags == 0x02 and not seen_syn:  # SYN only
-            syn_time = float(ts)
-            seen_syn = True
+        flags = tcp.flags
 
-        # SYN-ACK
-        elif tcp.flags == 0x12 and syn_time and not syn_ack_time:  # SYN + ACK
-            syn_ack_time = float(ts)
+        # SYN and SYN-ACK time detection
+        if flags == 0x02 and not syn_time:
+            syn_time = ts
+        elif flags == 0x12 and syn_time and not syn_ack_time:
+            syn_ack_time = ts
 
         # TCP Reset
-        if tcp.flags & 0x04:  # RST
+        if flags & 0x04:
             tcp_reset_events.append((src, dst, time_str))
 
-        # Retransmission (simple detection using seq numbers)
-        flow_id = (src, dst, tcp.sport, tcp.dport, tcp.seq)
-        if flow_id in seen_seqs:
-            regular_retrans.append((src, dst, time_str))
-        else:
-            seen_seqs.add(flow_id)
+        # Track seen sequences with data payload
+        payload_len = len(tcp.payload)
+        flow_id = (src, dst, tcp.sport, tcp.dport)
+        seq_key = (flow_id, tcp.seq)
+
+        if payload_len > 0:
+            if seq_key in seen_seqs:
+                regular_retrans.append((src, dst, time_str))
+                retrans_flags[flow_id] = ts
+            else:
+                seen_seqs[seq_key] = ts
 
         # Duplicate ACK detection
         if tcp.ack:
             ack_key = (src, dst, tcp.ack)
-            ack_counts[ack_key] = ack_counts.get(ack_key, 0) + 1
-            if ack_counts[ack_key] == 2:
+            ack_history[ack_key] = ack_history.get(ack_key, 0) + 1
+            if ack_history[ack_key] >= 2:
                 duplicate_acks.append((src, dst, time_str))
+
+        # Fast retransmission heuristic: if 3+ dup ACKs and we saw a retransmit within short time
+        if tcp.seq == 1 and flow_id in retrans_flags and ack_history.get((dst, src, tcp.seq), 0) >= 3:
+            fast_retrans.append((src, dst, time_str))
 
     syn_delay_ms = round((syn_ack_time - syn_time) * 1000, 3) if syn_time and syn_ack_time else None
 
