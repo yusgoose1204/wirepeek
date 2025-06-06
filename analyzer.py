@@ -2,9 +2,9 @@ import pyshark
 
 def analyze_pcap(file_path):
     try:
-        capture = pyshark.FileCapture(file_path, display_filter="tcp", use_json=True)
+        cap = pyshark.FileCapture(file_path, display_filter='tcp', keep_packets=False)
     except Exception as e:
-        print(f"Error opening file: {e}")
+        print(f"Error loading PCAP: {e}")
         return {}
 
     total_tcp_packets = 0
@@ -15,63 +15,54 @@ def analyze_pcap(file_path):
     tcp_reset_events = []
     syn_time = None
     syn_ack_time = None
+    rtt_samples = []
 
-    ack_tracker = {}
-    dup_ack_seen = set()
-    seen_data = set()
+    for pkt in cap:
+        if 'TCP' not in pkt:
+            continue
+        total_tcp_packets += 1
+        tcp = pkt.tcp
+        timestamp = float(pkt.sniff_timestamp)
+        src = pkt.ip.src if hasattr(pkt, 'ip') else 'N/A'
+        dst = pkt.ip.dst if hasattr(pkt, 'ip') else 'N/A'
+        time_str = pkt.sniff_time.strftime("%H:%M:%S.%f")[:-3]
 
-    for pkt in capture:
+        # SYN time
+        if hasattr(tcp, 'flags_syn') and tcp.flags_syn == '1' and tcp.flags_ack == '0':
+            syn_time = timestamp
+
+        # SYN-ACK time
+        if hasattr(tcp, 'flags_syn') and tcp.flags_syn == '1' and tcp.flags_ack == '1':
+            syn_ack_time = timestamp
+
+        # Retransmission detection
+        if hasattr(tcp, 'analysis_fast_retransmission'):
+            fast_retrans.append((src, dst, time_str))
+        elif hasattr(tcp, 'analysis_retransmission'):
+            regular_retrans.append((src, dst, time_str))
+
+        # Duplicate ACKs
+        if hasattr(tcp, 'analysis_duplicate_ack'):
+            duplicate_acks.append((src, dst, time_str))
+
+        # Zero Window
         try:
-            tcp = pkt.tcp
-            ip = pkt.ip
-            total_tcp_packets += 1
+            if hasattr(tcp, 'window_size') and int(tcp.window_size) == 0:
+                zero_window_events.append((src, dst, time_str))
+        except:
+            pass
 
-            ts = float(pkt.sniff_timestamp)
-            time_str = pkt.sniff_time.strftime("%H:%M:%S.%f")[:-3]
-            src, dst = ip.src, ip.dst
-            sport, dport = tcp.srcport, tcp.dstport
-            seq = int(tcp.seq)
-            ack = int(tcp.ack)
-            payload_len = int(tcp.len)
-            flags = tcp.flags
+        # TCP Reset
+        if hasattr(tcp, 'flags_reset') and tcp.flags_reset == '1':
+            tcp_reset_events.append((src, dst, time_str))
 
-            # SYN/SYN-ACK
-            if tcp.flags_syn == '1' and tcp.flags_ack == '0' and not syn_time:
-                syn_time = ts
-            elif tcp.flags_syn == '1' and tcp.flags_ack == '1' and syn_time and not syn_ack_time:
-                syn_ack_time = ts
+    cap.close()
 
-            # TCP Reset
-            if tcp.flags_reset == '1':
-                tcp_reset_events.append((src, dst, time_str))
-
-            # Duplicate ACK
-            if payload_len == 0:
-                key = (src, dst, ack)
-                ack_tracker[key] = ack_tracker.get(key, 0) + 1
-                if ack_tracker[key] >= 2 and key not in dup_ack_seen:
-                    duplicate_acks.append((src, dst, time_str))
-                    dup_ack_seen.add(key)
-
-            # Retransmissions
-            if payload_len > 0:
-                data_key = (src, dst, sport, dport, seq)
-                if data_key in seen_data:
-                    reverse_ack_key = (dst, src, seq + payload_len)
-                    if ack_tracker.get(reverse_ack_key, 0) >= 3:
-                        fast_retrans.append((src, dst, time_str))
-                    else:
-                        regular_retrans.append((src, dst, time_str))
-                else:
-                    seen_data.add(data_key)
-
-        except AttributeError:
-            continue
-        except Exception as e:
-            print(f"Error processing packet: {e}")
-            continue
+    if not syn_time or not syn_ack_time:
+        print("SYN or SYN-ACK missing; cannot compute SYN delay.")
 
     syn_delay_ms = round((syn_ack_time - syn_time) * 1000, 3) if syn_time and syn_ack_time else None
+    avg_rtt_ms = round(sum(rtt_samples) / len(rtt_samples) * 1000, 3) if rtt_samples else None
 
     return {
         'total_tcp_packets': total_tcp_packets,
@@ -81,5 +72,5 @@ def analyze_pcap(file_path):
         'zero_window_events': zero_window_events,
         'tcp_reset_events': tcp_reset_events,
         'syn_delay_ms': syn_delay_ms,
-        'avg_rtt_ms': None
+        'avg_rtt_ms': avg_rtt_ms,
     }
