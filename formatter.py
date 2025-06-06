@@ -1,4 +1,4 @@
-def format_tcp_analysis(metrics: dict, filename: str = "Unknown Capture", max_events_per_category: int = 5) -> str:
+def format_tcp_analysis(metrics: dict, filename: str = "Unknown Capture", max_events_per_category: int = 10) -> str:
     lines = []
     lines.append("*** WirePeek Summary ***")
     lines.append(f"File: {filename}")
